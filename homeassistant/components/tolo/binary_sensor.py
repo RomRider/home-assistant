@@ -1,16 +1,17 @@
 """TOLO Sauna binary sensors."""
 
 from homeassistant.components.binary_sensor import (
-    DEVICE_CLASS_OPENING,
+    BinarySensorDeviceClass,
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ENTITY_CATEGORY_DIAGNOSTIC
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import ToloSaunaCoordinatorEntity, ToloSaunaUpdateCoordinator
 from .const import DOMAIN
+from .coordinator import ToloSaunaUpdateCoordinator
+from .entity import ToloSaunaCoordinatorEntity
 
 
 async def async_setup_entry(
@@ -31,10 +32,9 @@ async def async_setup_entry(
 class ToloFlowInBinarySensor(ToloSaunaCoordinatorEntity, BinarySensorEntity):
     """Water In Valve Sensor."""
 
-    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
-    _attr_name = "Water In Valve"
-    _attr_device_class = DEVICE_CLASS_OPENING
-    _attr_icon = "mdi:water-plus-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "water_in_valve"
+    _attr_device_class = BinarySensorDeviceClass.OPENING
 
     def __init__(
         self, coordinator: ToloSaunaUpdateCoordinator, entry: ConfigEntry
@@ -53,10 +53,9 @@ class ToloFlowInBinarySensor(ToloSaunaCoordinatorEntity, BinarySensorEntity):
 class ToloFlowOutBinarySensor(ToloSaunaCoordinatorEntity, BinarySensorEntity):
     """Water Out Valve Sensor."""
 
-    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
-    _attr_name = "Water Out Valve"
-    _attr_device_class = DEVICE_CLASS_OPENING
-    _attr_icon = "mdi:water-minus-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "water_out_valve"
+    _attr_device_class = BinarySensorDeviceClass.OPENING
 
     def __init__(
         self, coordinator: ToloSaunaUpdateCoordinator, entry: ConfigEntry

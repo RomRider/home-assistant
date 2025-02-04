@@ -1,67 +1,69 @@
 """The 1-Wire component."""
-import asyncio
+
 import logging
 
-from homeassistant.config_entries import ConfigEntry
+from pyownet import protocol
+
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 
-from .const import DOMAIN, PLATFORMS
-from .onewirehub import CannotConnect, OneWireHub
+from .const import DOMAIN
+from .onewirehub import OneWireConfigEntry, OneWireHub
 
 _LOGGER = logging.getLogger(__name__)
 
+_PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+
+async def async_setup_entry(hass: HomeAssistant, entry: OneWireConfigEntry) -> bool:
     """Set up a 1-Wire proxy for a config entry."""
-    hass.data.setdefault(DOMAIN, {})
-
-    onewirehub = OneWireHub(hass)
+    onewire_hub = OneWireHub(hass, entry)
     try:
-        await onewirehub.initialize(entry)
-    except CannotConnect as exc:
-        raise ConfigEntryNotReady() from exc
+        await onewire_hub.initialize()
+    except (
+        protocol.ConnError,  # Failed to connect to the server
+        protocol.OwnetError,  # Connected to server, but failed to list the devices
+    ) as exc:
+        raise ConfigEntryNotReady from exc
 
-    hass.data[DOMAIN][entry.entry_id] = onewirehub
+    entry.runtime_data = onewire_hub
 
-    async def cleanup_registry(onewirehub: OneWireHub) -> None:
-        # Get registries
-        device_registry = dr.async_get(hass)
-        # Generate list of all device entries
-        registry_devices = list(
-            dr.async_entries_for_config_entry(device_registry, entry.entry_id)
-        )
-        # Remove devices that don't belong to any entity
-        for device in registry_devices:
-            if not onewirehub.has_device_in_cache(device):
-                _LOGGER.debug(
-                    "Removing device `%s` because it is no longer available",
-                    device.id,
-                )
-                device_registry.async_remove_device(device.id)
+    await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
 
-    async def start_platforms(onewirehub: OneWireHub) -> None:
-        """Start platforms and cleanup devices."""
-        # wait until all required platforms are ready
-        await asyncio.gather(
-            *(
-                hass.config_entries.async_forward_entry_setup(entry, platform)
-                for platform in PLATFORMS
-            )
-        )
-        await cleanup_registry(onewirehub)
+    onewire_hub.schedule_scan_for_new_devices()
 
-    hass.async_create_task(start_platforms(onewirehub))
+    entry.async_on_unload(entry.add_update_listener(options_update_listener))
 
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(
-        config_entry, PLATFORMS
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: OneWireConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Remove a config entry from a device."""
+    onewire_hub = config_entry.runtime_data
+    return not device_entry.identifiers.intersection(
+        (DOMAIN, device.id) for device in onewire_hub.devices or []
     )
-    if unload_ok:
-        hass.data[DOMAIN].pop(config_entry.entry_id)
-    return unload_ok
+
+
+async def async_unload_entry(
+    hass: HomeAssistant, config_entry: OneWireConfigEntry
+) -> bool:
+    """Unload a config entry."""
+    return await hass.config_entries.async_unload_platforms(config_entry, _PLATFORMS)
+
+
+async def options_update_listener(
+    hass: HomeAssistant, entry: OneWireConfigEntry
+) -> None:
+    """Handle options update."""
+    _LOGGER.debug("Configuration options updated, reloading OneWire integration")
+    await hass.config_entries.async_reload(entry.entry_id)

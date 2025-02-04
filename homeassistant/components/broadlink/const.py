@@ -1,15 +1,17 @@
 """Constants."""
-from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
-from homeassistant.components.remote import DOMAIN as REMOTE_DOMAIN
-from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
-from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
+
+from homeassistant.const import Platform
 
 DOMAIN = "broadlink"
 
 DOMAINS_AND_TYPES = {
-    REMOTE_DOMAIN: {"RM4MINI", "RM4PRO", "RMMINI", "RMMINIB", "RMPRO"},
-    SENSOR_DOMAIN: {
+    Platform.CLIMATE: {"HYS"},
+    Platform.LIGHT: {"LB1", "LB2"},
+    Platform.REMOTE: {"RM4MINI", "RM4PRO", "RMMINI", "RMMINIB", "RMPRO"},
+    Platform.SELECT: {"HYS"},
+    Platform.SENSOR: {
         "A1",
+        "MP1S",
         "RM4MINI",
         "RM4PRO",
         "RMPRO",
@@ -18,9 +20,10 @@ DOMAINS_AND_TYPES = {
         "SP4",
         "SP4B",
     },
-    SWITCH_DOMAIN: {
+    Platform.SWITCH: {
         "BG1",
         "MP1",
+        "MP1S",
         "RM4MINI",
         "RM4PRO",
         "RMMINI",
@@ -34,7 +37,7 @@ DOMAINS_AND_TYPES = {
         "SP4",
         "SP4B",
     },
-    LIGHT_DOMAIN: {"LB1"},
+    Platform.TIME: {"HYS"},
 }
 DEVICE_TYPES = set.union(*DOMAINS_AND_TYPES.values())
 

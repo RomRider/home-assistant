@@ -1,4 +1,5 @@
 """Config flow for OpenGarage integration."""
+
 from __future__ import annotations
 
 import logging
@@ -8,10 +9,9 @@ import aiohttp
 import opengarage
 import voluptuous as vol
 
-from homeassistant import config_entries
-from homeassistant.const import CONF_HOST, CONF_PORT, CONF_SSL, CONF_VERIFY_SSL
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.const import CONF_HOST, CONF_PORT, CONF_VERIFY_SSL
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import format_mac
@@ -53,25 +53,14 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     return {"title": status.get("name"), "unique_id": format_mac(status["mac"])}
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class OpenGarageConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for OpenGarage."""
 
     VERSION = 1
 
-    async def async_step_import(self, import_info):
-        """Set the config entry up from yaml."""
-
-        user_input = {
-            CONF_DEVICE_KEY: import_info[CONF_DEVICE_KEY],
-            CONF_HOST: f"{'https' if import_info.get(CONF_SSL, False) else 'http'}://{import_info[CONF_HOST]}",
-            CONF_PORT: import_info.get(CONF_PORT, DEFAULT_PORT),
-            CONF_VERIFY_SSL: import_info.get(CONF_VERIFY_SSL, False),
-        }
-        return await self.async_step_user(user_input)
-
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         if user_input is None:
             return self.async_show_form(
@@ -86,7 +75,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "cannot_connect"
         except InvalidAuth:
             errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:

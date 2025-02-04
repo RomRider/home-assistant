@@ -1,15 +1,15 @@
 """The Omnilogic integration."""
+
 import logging
 
 from omnilogic import LoginException, OmniLogic, OmniLogicException
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import aiohttp_client
 
-from .common import OmniLogicUpdateCoordinator
 from .const import (
     CONF_SCAN_INTERVAL,
     COORDINATOR,
@@ -17,10 +17,11 @@ from .const import (
     DOMAIN,
     OMNI_API,
 )
+from .coordinator import OmniLogicUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor", "switch"]
+PLATFORMS = [Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -61,7 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         OMNI_API: api,
     }
 
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 

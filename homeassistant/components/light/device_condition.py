@@ -1,4 +1,5 @@
 """Provides device conditions for lights."""
+
 from __future__ import annotations
 
 import voluptuous as vol
@@ -9,7 +10,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.condition import ConditionCheckerType
 from homeassistant.helpers.typing import ConfigType
 
-from . import DOMAIN
+from .const import DOMAIN
 
 # mypy: disallow-any-generics
 
@@ -19,9 +20,11 @@ CONDITION_SCHEMA = toggle_entity.CONDITION_SCHEMA.extend(
 
 
 @callback
-def async_condition_from_config(config: ConfigType) -> ConditionCheckerType:
+def async_condition_from_config(
+    hass: HomeAssistant, config: ConfigType
+) -> ConditionCheckerType:
     """Evaluate state based on configuration."""
-    return toggle_entity.async_condition_from_config(config)
+    return toggle_entity.async_condition_from_config(hass, config)
 
 
 async def async_get_conditions(

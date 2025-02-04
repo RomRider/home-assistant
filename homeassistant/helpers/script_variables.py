@@ -1,4 +1,5 @@
 """Script variables."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -7,8 +8,6 @@ from typing import Any
 from homeassistant.core import HomeAssistant, callback
 
 from . import template
-
-# mypy: disallow-any-generics
 
 
 class ScriptVariables:
@@ -37,7 +36,6 @@ class ScriptVariables:
         """
         if self._has_template is None:
             self._has_template = template.is_complex(self.variables)
-            template.attach(hass, self.variables)
 
         if not self._has_template:
             if render_as_defaults:

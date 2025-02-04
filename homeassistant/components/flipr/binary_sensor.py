@@ -1,36 +1,45 @@
 """Support for Flipr binary sensors."""
+
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import (
-    DEVICE_CLASS_PROBLEM,
+    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import FliprEntity
-from .const import DOMAIN
+from . import FliprConfigEntry
+from .entity import FliprEntity
 
 BINARY_SENSORS_TYPES: tuple[BinarySensorEntityDescription, ...] = (
     BinarySensorEntityDescription(
         key="ph_status",
-        name="PH Status",
-        device_class=DEVICE_CLASS_PROBLEM,
+        translation_key="ph_status",
+        device_class=BinarySensorDeviceClass.PROBLEM,
     ),
     BinarySensorEntityDescription(
         key="chlorine_status",
-        name="Chlorine Status",
-        device_class=DEVICE_CLASS_PROBLEM,
+        translation_key="chlorine_status",
+        device_class=BinarySensorDeviceClass.PROBLEM,
     ),
 )
 
 
-async def async_setup_entry(hass, config_entry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: FliprConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     """Defer sensor setup of flipr binary sensors."""
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+
+    coordinators = config_entry.runtime_data.flipr_coordinators
 
     async_add_entities(
         FliprBinarySensor(coordinator, description)
         for description in BINARY_SENSORS_TYPES
+        for coordinator in coordinators
     )
 
 
@@ -38,9 +47,9 @@ class FliprBinarySensor(FliprEntity, BinarySensorEntity):
     """Representation of Flipr binary sensors."""
 
     @property
-    def is_on(self):
+    def is_on(self) -> bool:
         """Return true if the binary sensor is on in case of a Problem is detected."""
-        return (
-            self.coordinator.data[self.entity_description.key] == "TooLow"
-            or self.coordinator.data[self.entity_description.key] == "TooHigh"
+        return self.coordinator.data[self.entity_description.key] in (
+            "TooLow",
+            "TooHigh",
         )

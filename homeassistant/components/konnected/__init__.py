@@ -1,4 +1,5 @@
 """Support for Konnected devices."""
+
 import copy
 import hmac
 from http import HTTPStatus
@@ -11,7 +12,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components.binary_sensor import DEVICE_CLASSES_SCHEMA
-from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.http import KEY_HASS, HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -31,6 +32,7 @@ from homeassistant.const import (
     CONF_ZONE,
     STATE_OFF,
     STATE_ON,
+    Platform,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
@@ -83,7 +85,7 @@ def ensure_zone(value):
     if value is None:
         raise vol.Invalid("zone value is None")
 
-    if str(value) not in ZONES is None:
+    if str(value) not in ZONES:
         raise vol.Invalid("zone not valid")
 
     return str(value)
@@ -196,7 +198,6 @@ DEVICE_SCHEMA_YAML = vol.All(
     import_device_validator,
 )
 
-# pylint: disable=no-value-for-parameter
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.All(
@@ -216,7 +217,7 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 YAML_CONFIGS = "yaml_configs"
-PLATFORMS = ["binary_sensor", "sensor", "switch"]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -258,7 +259,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # async_connect will handle retries until it establishes a connection
     await client.async_connect()
 
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # config entry specific data to enable unload
     hass.data[DOMAIN][entry.entry_id] = {
@@ -280,7 +281,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-async def async_entry_updated(hass: HomeAssistant, entry: ConfigEntry):
+async def async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the config entry when options change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
@@ -292,7 +293,7 @@ class KonnectedView(HomeAssistantView):
     name = "api:konnected"
     requires_auth = False  # Uses access token from configuration
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the view."""
 
     @staticmethod
@@ -304,7 +305,7 @@ class KonnectedView(HomeAssistantView):
 
     async def update_sensor(self, request: Request, device_id) -> Response:
         """Process a put or post."""
-        hass = request.app["hass"]
+        hass = request.app[KEY_HASS]
         data = hass.data[DOMAIN]
 
         auth = request.headers.get(AUTHORIZATION)
@@ -376,7 +377,7 @@ class KonnectedView(HomeAssistantView):
 
     async def get(self, request: Request, device_id) -> Response:
         """Return the current binary state of a switch."""
-        hass = request.app["hass"]
+        hass = request.app[KEY_HASS]
         data = hass.data[DOMAIN]
 
         if not (device := data[CONF_DEVICES].get(device_id)):
@@ -418,13 +419,14 @@ class KonnectedView(HomeAssistantView):
         resp = {}
         if request.query.get(CONF_ZONE):
             resp[CONF_ZONE] = zone_num
-        else:
+        elif zone_num:
             resp[CONF_PIN] = ZONE_TO_PIN[zone_num]
 
         # Make sure entity is setup
         if zone_entity_id := zone.get(ATTR_ENTITY_ID):
             resp["state"] = self.binary_value(
-                hass.states.get(zone_entity_id).state, zone[CONF_ACTIVATION]
+                hass.states.get(zone_entity_id).state,  # type: ignore[union-attr]
+                zone[CONF_ACTIVATION],
             )
             return self.json(resp)
 

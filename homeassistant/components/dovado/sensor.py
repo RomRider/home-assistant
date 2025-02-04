@@ -1,4 +1,5 @@
 """Support for sensors from the Dovado router."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,12 +9,16 @@ import re
 import voluptuous as vol
 
 from homeassistant.components.sensor import (
-    PLATFORM_SCHEMA,
+    PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.const import CONF_SENSORS, DATA_GIGABYTES, PERCENTAGE
-import homeassistant.helpers.config_validation as cv
+from homeassistant.const import CONF_SENSORS, PERCENTAGE, UnitOfInformation
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import DOMAIN as DOVADO_DOMAIN
 
@@ -26,16 +31,11 @@ SENSOR_NETWORK = "network"
 SENSOR_SMS_UNREAD = "sms"
 
 
-@dataclass
-class DovadoRequiredKeysMixin:
-    """Mixin for required keys."""
+@dataclass(frozen=True, kw_only=True)
+class DovadoSensorEntityDescription(SensorEntityDescription):
+    """Describes Dovado sensor entity."""
 
     identifier: str
-
-
-@dataclass
-class DovadoSensorEntityDescription(SensorEntityDescription, DovadoRequiredKeysMixin):
-    """Describes Dovado sensor entity."""
 
 
 SENSOR_TYPES: tuple[DovadoSensorEntityDescription, ...] = (
@@ -62,26 +62,33 @@ SENSOR_TYPES: tuple[DovadoSensorEntityDescription, ...] = (
         identifier=SENSOR_UPLOAD,
         key="traffic modem tx",
         name="Sent",
-        native_unit_of_measurement=DATA_GIGABYTES,
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:cloud-upload",
     ),
     DovadoSensorEntityDescription(
         identifier=SENSOR_DOWNLOAD,
         key="traffic modem rx",
         name="Received",
-        native_unit_of_measurement=DATA_GIGABYTES,
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:cloud-download",
     ),
 )
 
 SENSOR_KEYS: list[str] = [desc.key for desc in SENSOR_TYPES]
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {vol.Required(CONF_SENSORS): vol.All(cv.ensure_list, [vol.In(SENSOR_KEYS)])}
 )
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+def setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,
+) -> None:
     """Set up the Dovado sensor platform."""
     dovado = hass.data[DOVADO_DOMAIN]
 
@@ -99,7 +106,7 @@ class DovadoSensor(SensorEntity):
 
     entity_description: DovadoSensorEntityDescription
 
-    def __init__(self, data, description: DovadoSensorEntityDescription):
+    def __init__(self, data, description: DovadoSensorEntityDescription) -> None:
         """Initialize the sensor."""
         self.entity_description = description
         self._data = data
@@ -125,7 +132,7 @@ class DovadoSensor(SensorEntity):
             return round(float(state) / 1e6, 1)
         return state
 
-    def update(self):
+    def update(self) -> None:
         """Update sensor values."""
         self._data.update()
         self._attr_native_value = self._compute_state()

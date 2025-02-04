@@ -1,4 +1,5 @@
 """Models for the AVM FRITZ!SmartHome integration."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -8,14 +9,7 @@ from typing import TypedDict
 from pyfritzhome import FritzhomeDevice
 
 
-class FritzExtraAttributes(TypedDict):
-    """TypedDict for sensors extra attributes."""
-
-    device_locked: bool
-    locked: bool
-
-
-class ClimateExtraAttributes(FritzExtraAttributes, total=False):
+class ClimateExtraAttributes(TypedDict, total=False):
     """TypedDict for climates extra attributes."""
 
     battery_level: int
@@ -25,7 +19,7 @@ class ClimateExtraAttributes(FritzExtraAttributes, total=False):
     window_open: bool
 
 
-@dataclass
+@dataclass(frozen=True)
 class FritzEntityDescriptionMixinBase:
     """Bases description mixin for Fritz!Smarthome entities."""
 

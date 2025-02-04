@@ -1,45 +1,73 @@
-"""The Whirlpool Sixth Sense integration."""
+"""The Whirlpool Appliances integration."""
+
+from dataclasses import dataclass
 import logging
 
-import aiohttp
-from whirlpool.auth import Auth
+from aiohttp import ClientError
+from whirlpool.appliancesmanager import AppliancesManager
+from whirlpool.auth import AccountLockedError as WhirlpoolAccountLocked, Auth
+from whirlpool.backendselector import BackendSelector
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import AUTH_INSTANCE_KEY, DOMAIN
+from .const import CONF_BRAND, CONF_BRANDS_MAP, CONF_REGIONS_MAP, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["climate"]
+PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
+
+type WhirlpoolConfigEntry = ConfigEntry[WhirlpoolData]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: WhirlpoolConfigEntry) -> bool:
     """Set up Whirlpool Sixth Sense from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    auth = Auth(entry.data["username"], entry.data["password"])
+    session = async_get_clientsession(hass)
+    region = CONF_REGIONS_MAP[entry.data.get(CONF_REGION, "EU")]
+    brand = CONF_BRANDS_MAP[entry.data.get(CONF_BRAND, "Whirlpool")]
+    backend_selector = BackendSelector(brand, region)
+
+    auth = Auth(
+        backend_selector, entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD], session
+    )
     try:
         await auth.do_auth(store=False)
-    except aiohttp.ClientError as ex:
+    except (ClientError, TimeoutError) as ex:
         raise ConfigEntryNotReady("Cannot connect") from ex
+    except WhirlpoolAccountLocked as ex:
+        raise ConfigEntryAuthFailed(
+            translation_domain=DOMAIN, translation_key="account_locked"
+        ) from ex
 
     if not auth.is_access_token_valid():
         _LOGGER.error("Authentication failed")
+        raise ConfigEntryAuthFailed("Incorrect Password")
+
+    appliances_manager = AppliancesManager(backend_selector, auth, session)
+    if not await appliances_manager.fetch_appliances():
+        _LOGGER.error("Cannot fetch appliances")
         return False
 
-    hass.data[DOMAIN][entry.entry_id] = {AUTH_INSTANCE_KEY: auth}
+    entry.runtime_data = WhirlpoolData(appliances_manager, auth, backend_selector)
 
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
-
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: WhirlpoolConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    return unload_ok
+
+@dataclass
+class WhirlpoolData:
+    """Whirlpool integaration shared data."""
+
+    appliances_manager: AppliancesManager
+    auth: Auth
+    backend_selector: BackendSelector

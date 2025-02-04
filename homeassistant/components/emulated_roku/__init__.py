@@ -1,10 +1,14 @@
 """Support for Roku API emulation."""
+
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components.network import async_get_source_ip
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
-import homeassistant.helpers.config_validation as cv
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from .binding import EmulatedRoku
 from .config_flow import configured_servers
@@ -43,7 +47,7 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass, config):
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the emulated roku component."""
     if (conf := config.get(DOMAIN)) is None:
         return True
@@ -61,7 +65,7 @@ async def async_setup(hass, config):
     return True
 
 
-async def async_setup_entry(hass, config_entry):
+async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up an emulated roku server from a config entry."""
     config = config_entry.data
 
@@ -90,7 +94,7 @@ async def async_setup_entry(hass, config_entry):
     return await server.setup()
 
 
-async def async_unload_entry(hass, entry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     name = entry.data[CONF_NAME]
     server = hass.data[DOMAIN].pop(name)

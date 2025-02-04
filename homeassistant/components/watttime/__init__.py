@@ -1,4 +1,5 @@
 """The WattTime integration."""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -13,6 +14,7 @@ from homeassistant.const import (
     CONF_LONGITUDE,
     CONF_PASSWORD,
     CONF_USERNAME,
+    Platform,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -23,7 +25,7 @@ from .const import DOMAIN, LOGGER
 
 DEFAULT_UPDATE_INTERVAL = timedelta(minutes=5)
 
-PLATFORMS: list[str] = ["sensor"]
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -56,6 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = DataUpdateCoordinator(
         hass,
         LOGGER,
+        config_entry=entry,
         name=entry.title,
         update_interval=DEFAULT_UPDATE_INTERVAL,
         update_method=async_update_data,
@@ -65,7 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 

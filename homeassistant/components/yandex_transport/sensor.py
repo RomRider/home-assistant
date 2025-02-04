@@ -1,32 +1,40 @@
 """Service for obtaining information about closer bus from Transport Yandex Service."""
 
+from __future__ import annotations
+
 from datetime import timedelta
 import logging
 
-from aioymaps import CaptchaError, YandexMapsRequester
+from aioymaps import CaptchaError, NoSessionError, YandexMapsRequester
 import voluptuous as vol
 
-from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
-from homeassistant.const import ATTR_ATTRIBUTION, CONF_NAME, DEVICE_CLASS_TIMESTAMP
+from homeassistant.components.sensor import (
+    PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
+    SensorDeviceClass,
+    SensorEntity,
+)
+from homeassistant.const import CONF_NAME
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
-import homeassistant.helpers.config_validation as cv
-import homeassistant.util.dt as dt_util
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
 STOP_NAME = "stop_name"
 USER_AGENT = "Home Assistant"
-ATTRIBUTION = "Data provided by maps.yandex.ru"
 
 CONF_STOP_ID = "stop_id"
 CONF_ROUTE = "routes"
 
 DEFAULT_NAME = "Yandex Transport"
-ICON = "mdi:bus"
+
 
 SCAN_INTERVAL = timedelta(minutes=1)
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_STOP_ID): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
@@ -35,7 +43,12 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 )
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+async def async_setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    async_add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,
+) -> None:
     """Set up the Yandex transport sensor."""
     stop_id = config[CONF_STOP_ID]
     name = config[CONF_NAME]
@@ -57,7 +70,10 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 class DiscoverYandexTransport(SensorEntity):
     """Implementation of yandex_transport sensor."""
 
-    def __init__(self, requester: YandexMapsRequester, stop_id, routes, name):
+    _attr_attribution = "Data provided by maps.yandex.ru"
+    _attr_icon = "mdi:bus"
+
+    def __init__(self, requester: YandexMapsRequester, stop_id, routes, name) -> None:
         """Initialize sensor."""
         self.requester = requester
         self._stop_id = stop_id
@@ -72,7 +88,7 @@ class DiscoverYandexTransport(SensorEntity):
         closer_time = None
         try:
             yandex_reply = await self.requester.get_stop_info(self._stop_id)
-        except CaptchaError as ex:
+        except (CaptchaError, NoSessionError) as ex:
             _LOGGER.error(
                 "%s. You may need to disable the integration for some time",
                 ex,
@@ -82,7 +98,10 @@ class DiscoverYandexTransport(SensorEntity):
             data = yandex_reply["data"]
         except KeyError as key_error:
             _LOGGER.warning(
-                "Exception KeyError was captured, missing key is %s. Yandex returned: %s",
+                (
+                    "Exception KeyError was captured, missing key is %s. Yandex"
+                    " returned: %s"
+                ),
                 key_error,
                 yandex_reply,
             )
@@ -125,13 +144,11 @@ class DiscoverYandexTransport(SensorEntity):
                         attrs[route] = []
                     attrs[route].append(departure["text"])
         attrs[STOP_NAME] = stop_name
-        attrs[ATTR_ATTRIBUTION] = ATTRIBUTION
+
         if closer_time is None:
             self._state = None
         else:
-            self._state = dt_util.utc_from_timestamp(closer_time).isoformat(
-                timespec="seconds"
-            )
+            self._state = dt_util.utc_from_timestamp(closer_time).replace(microsecond=0)
         self._attrs = attrs
 
     @property
@@ -142,7 +159,7 @@ class DiscoverYandexTransport(SensorEntity):
     @property
     def device_class(self):
         """Return the device class."""
-        return DEVICE_CLASS_TIMESTAMP
+        return SensorDeviceClass.TIMESTAMP
 
     @property
     def name(self):
@@ -153,8 +170,3 @@ class DiscoverYandexTransport(SensorEntity):
     def extra_state_attributes(self):
         """Return the state attributes."""
         return self._attrs
-
-    @property
-    def icon(self):
-        """Icon to use in the frontend, if any."""
-        return ICON

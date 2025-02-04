@@ -1,5 +1,5 @@
 """Support to send data to a Splunk instance."""
-import asyncio
+
 from http import HTTPStatus
 import json
 import logging
@@ -18,11 +18,12 @@ from homeassistant.const import (
     CONF_VERIFY_SSL,
     EVENT_STATE_CHANGED,
 )
-from homeassistant.helpers import state as state_helper
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv, state as state_helper
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entityfilter import FILTER_SCHEMA
 from homeassistant.helpers.json import JSONEncoder
+from homeassistant.helpers.typing import ConfigType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass, config):
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Splunk component."""
     conf = config[DOMAIN]
     host = conf.get(CONF_HOST)
@@ -118,7 +119,7 @@ async def async_setup(hass, config):
                 _LOGGER.warning(err)
         except ClientConnectionError as err:
             _LOGGER.warning(err)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.warning("Connection to %s:%s timed out", host, port)
         except ClientResponseError as err:
             _LOGGER.error(err.message)

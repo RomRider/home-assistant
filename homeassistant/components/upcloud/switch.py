@@ -2,31 +2,26 @@
 
 from typing import Any
 
-import voluptuous as vol
-
-from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, STATE_OFF
+from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import STATE_OFF
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import CONF_SERVERS, DATA_UPCLOUD, SIGNAL_UPDATE_UPCLOUD, UpCloudServerEntity
+from .coordinator import UpCloudConfigEntry
+from .entity import UpCloudServerEntity
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {vol.Required(CONF_SERVERS): vol.All(cv.ensure_list, [cv.string])}
-)
+SIGNAL_UPDATE_UPCLOUD = "upcloud_update"
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: UpCloudConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the UpCloud server switch."""
-    coordinator = hass.data[DATA_UPCLOUD].coordinators[config_entry.data[CONF_USERNAME]]
-    entities = [UpCloudSwitch(coordinator, uuid) for uuid in coordinator.data]
+    coordinator = config_entry.runtime_data
+    entities = [UpCloudSwitch(config_entry, uuid) for uuid in coordinator.data]
     async_add_entities(entities, True)
 
 

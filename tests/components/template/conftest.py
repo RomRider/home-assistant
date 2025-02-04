@@ -1,32 +1,25 @@
 """template conftest."""
-import json
 
 import pytest
 
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.setup import async_setup_component
 
 from tests.common import assert_setup_component, async_mock_service
 
 
 @pytest.fixture
-def calls(hass):
+def calls(hass: HomeAssistant) -> list[ServiceCall]:
     """Track calls to a mock service."""
     return async_mock_service(hass, "test", "automation")
 
 
 @pytest.fixture
-def config_addon():
-    """Add entra configuration items."""
-    return None
-
-
-@pytest.fixture
-async def start_ha(hass, count, domain, config_addon, config, caplog):
+async def start_ha(
+    hass: HomeAssistant, count: int, domain: str, config: ConfigType
+) -> None:
     """Do setup of integration."""
-    if config_addon:
-        for key, value in config_addon.items():
-            config = config.replace(key, value)
-        config = json.loads(config)
     with assert_setup_component(count, domain):
         assert await async_setup_component(
             hass,
@@ -40,6 +33,11 @@ async def start_ha(hass, count, domain, config_addon, config, caplog):
 
 
 @pytest.fixture
-async def caplog_setup_text(caplog):
+async def caplog_setup_text(caplog: pytest.LogCaptureFixture) -> str:
     """Return setup log of integration."""
-    yield caplog.text
+    return caplog.text
+
+
+@pytest.fixture(autouse=True, name="stub_blueprint_populate")
+def stub_blueprint_populate_autouse(stub_blueprint_populate: None) -> None:
+    """Stub copying the blueprints to the config folder."""

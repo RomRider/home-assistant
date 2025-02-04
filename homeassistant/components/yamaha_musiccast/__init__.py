@@ -1,41 +1,32 @@
 """The MusicCast integration."""
+
 from __future__ import annotations
 
-from datetime import timedelta
 import logging
 
-from aiomusiccast import MusicCastConnectionException
-from aiomusiccast.musiccast_device import MusicCastData, MusicCastDevice
+from aiomusiccast.musiccast_device import MusicCastDevice
 
 from homeassistant.components import ssdp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST
+from homeassistant.const import CONF_HOST, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, format_mac
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
 
-from .const import BRAND, CONF_SERIAL, CONF_UPNP_DESC, DEFAULT_ZONE, DOMAIN
+from .const import CONF_SERIAL, CONF_UPNP_DESC, DOMAIN
+from .coordinator import MusicCastDataUpdateCoordinator
 
-PLATFORMS = ["media_player"]
+PLATFORMS = [Platform.MEDIA_PLAYER, Platform.NUMBER, Platform.SELECT, Platform.SWITCH]
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(seconds=60)
 
 
 async def get_upnp_desc(hass: HomeAssistant, host: str):
     """Get the upnp description URL for a given host, using the SSPD scanner."""
     ssdp_entries = await ssdp.async_get_discovery_info_by_st(hass, "upnp:rootdevice")
-    matches = [w for w in ssdp_entries if w.get("_host", "") == host]
+    matches = [w for w in ssdp_entries if w.ssdp_headers.get("_host", "") == host]
     upnp_desc = None
     for match in matches:
-        if match.get(ssdp.ATTR_SSDP_LOCATION):
-            upnp_desc = match[ssdp.ATTR_SSDP_LOCATION]
+        if upnp_desc := match.ssdp_location:
             break
 
     if not upnp_desc:
@@ -66,13 +57,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     coordinator = MusicCastDataUpdateCoordinator(hass, client=client)
     await coordinator.async_config_entry_first_refresh()
+    coordinator.musiccast.build_capabilities()
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await coordinator.musiccast.device.enable_polling()
 
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
@@ -91,102 +83,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry."""
     await hass.config_entries.async_reload(entry.entry_id)
-
-
-class MusicCastDataUpdateCoordinator(DataUpdateCoordinator[MusicCastData]):
-    """Class to manage fetching data from the API."""
-
-    def __init__(self, hass: HomeAssistant, client: MusicCastDevice) -> None:
-        """Initialize."""
-        self.musiccast = client
-
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=SCAN_INTERVAL)
-        self.entities: list[MusicCastDeviceEntity] = []
-
-    async def _async_update_data(self) -> MusicCastData:
-        """Update data via library."""
-        try:
-            await self.musiccast.fetch()
-        except MusicCastConnectionException as exception:
-            raise UpdateFailed() from exception
-        return self.musiccast.data
-
-
-class MusicCastEntity(CoordinatorEntity):
-    """Defines a base MusicCast entity."""
-
-    coordinator: MusicCastDataUpdateCoordinator
-
-    def __init__(
-        self,
-        *,
-        name: str,
-        icon: str,
-        coordinator: MusicCastDataUpdateCoordinator,
-        enabled_default: bool = True,
-    ) -> None:
-        """Initialize the MusicCast entity."""
-        super().__init__(coordinator)
-        self._enabled_default = enabled_default
-        self._icon = icon
-        self._name = name
-
-    @property
-    def name(self) -> str:
-        """Return the name of the entity."""
-        return self._name
-
-    @property
-    def icon(self) -> str:
-        """Return the mdi icon of the entity."""
-        return self._icon
-
-    @property
-    def entity_registry_enabled_default(self) -> bool:
-        """Return if the entity should be enabled when first added to the entity registry."""
-        return self._enabled_default
-
-
-class MusicCastDeviceEntity(MusicCastEntity):
-    """Defines a MusicCast device entity."""
-
-    _zone_id: str = DEFAULT_ZONE
-
-    @property
-    def device_id(self):
-        """Return the ID of the current device."""
-        if self._zone_id == DEFAULT_ZONE:
-            return self.coordinator.data.device_id
-        return f"{self.coordinator.data.device_id}_{self._zone_id}"
-
-    @property
-    def device_name(self):
-        """Return the name of the current device."""
-        return self.coordinator.data.zones[self._zone_id].name
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information about this MusicCast device."""
-
-        device_info = DeviceInfo(
-            name=self.device_name,
-            identifiers={
-                (
-                    DOMAIN,
-                    self.device_id,
-                )
-            },
-            manufacturer=BRAND,
-            model=self.coordinator.data.model_name,
-            sw_version=self.coordinator.data.system_version,
-        )
-
-        if self._zone_id == DEFAULT_ZONE:
-            device_info["connections"] = {
-                (CONNECTION_NETWORK_MAC, format_mac(mac))
-                for mac in self.coordinator.data.mac_addresses.values()
-            }
-        else:
-            device_info["via_device"] = (DOMAIN, self.coordinator.data.device_id)
-
-        return device_info

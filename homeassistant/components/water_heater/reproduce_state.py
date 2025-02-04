@@ -1,4 +1,5 @@
 """Reproduce an Water heater state."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +9,7 @@ from typing import Any
 
 from homeassistant.const import (
     ATTR_ENTITY_ID,
+    ATTR_TEMPERATURE,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_OFF,
@@ -18,7 +20,6 @@ from homeassistant.core import Context, HomeAssistant, State
 from . import (
     ATTR_AWAY_MODE,
     ATTR_OPERATION_MODE,
-    ATTR_TEMPERATURE,
     DOMAIN,
     SERVICE_SET_AWAY_MODE,
     SERVICE_SET_OPERATION_MODE,

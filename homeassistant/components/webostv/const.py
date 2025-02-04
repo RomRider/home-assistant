@@ -1,9 +1,19 @@
-"""Constants used for LG webOS Smart TV."""
-DOMAIN = "webostv"
+"""Constants for the LG webOS TV integration."""
 
-DEFAULT_NAME = "LG webOS Smart TV"
+import asyncio
+
+import aiohttp
+from aiowebostv import WebOsTvCommandError
+
+from homeassistant.const import Platform
+
+DOMAIN = "webostv"
+PLATFORMS = [Platform.MEDIA_PLAYER]
+DATA_HASS_CONFIG = "hass_config"
+DEFAULT_NAME = "LG webOS TV"
 
 ATTR_BUTTON = "button"
+ATTR_CONFIG_ENTRY_ID = "entry_id"
 ATTR_PAYLOAD = "payload"
 ATTR_SOUND_OUTPUT = "sound_output"
 
@@ -16,4 +26,11 @@ SERVICE_SELECT_SOUND_OUTPUT = "select_sound_output"
 
 LIVE_TV_APP_ID = "com.webos.app.livetv"
 
-WEBOSTV_CONFIG_FILE = "webostv.conf"
+WEBOSTV_EXCEPTIONS = (
+    ConnectionResetError,
+    WebOsTvCommandError,
+    aiohttp.ClientConnectorError,
+    aiohttp.ServerDisconnectedError,
+    asyncio.CancelledError,
+    asyncio.TimeoutError,
+)

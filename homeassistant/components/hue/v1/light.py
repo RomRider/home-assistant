@@ -1,43 +1,43 @@
 """Support for the Philips Hue lights."""
+
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from functools import partial
 import logging
 import random
 
 import aiohue
-import async_timeout
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
-    ATTR_COLOR_TEMP,
+    ATTR_COLOR_TEMP_KELVIN,
     ATTR_EFFECT,
     ATTR_FLASH,
     ATTR_HS_COLOR,
     ATTR_TRANSITION,
+    DEFAULT_MAX_KELVIN,
+    DEFAULT_MIN_KELVIN,
     EFFECT_COLORLOOP,
     EFFECT_RANDOM,
     FLASH_LONG,
     FLASH_SHORT,
-    SUPPORT_BRIGHTNESS,
-    SUPPORT_COLOR,
-    SUPPORT_COLOR_TEMP,
-    SUPPORT_EFFECT,
-    SUPPORT_FLASH,
-    SUPPORT_TRANSITION,
+    ColorMode,
     LightEntity,
+    LightEntityFeature,
+    filter_supported_color_modes,
 )
 from homeassistant.core import callback
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.debounce import Debouncer
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
     UpdateFailed,
 )
-from homeassistant.util import color
+from homeassistant.util import color as color_util
 
 from ..bridge import HueBridge
 from ..const import (
@@ -60,10 +60,24 @@ SCAN_INTERVAL = timedelta(seconds=5)
 
 LOGGER = logging.getLogger(__name__)
 
-SUPPORT_HUE_ON_OFF = SUPPORT_FLASH | SUPPORT_TRANSITION
-SUPPORT_HUE_DIMMABLE = SUPPORT_HUE_ON_OFF | SUPPORT_BRIGHTNESS
-SUPPORT_HUE_COLOR_TEMP = SUPPORT_HUE_DIMMABLE | SUPPORT_COLOR_TEMP
-SUPPORT_HUE_COLOR = SUPPORT_HUE_DIMMABLE | SUPPORT_EFFECT | SUPPORT_COLOR
+COLOR_MODES_HUE_ON_OFF = {ColorMode.ONOFF}
+COLOR_MODES_HUE_DIMMABLE = {ColorMode.BRIGHTNESS}
+COLOR_MODES_HUE_COLOR_TEMP = {ColorMode.COLOR_TEMP}
+COLOR_MODES_HUE_COLOR = {ColorMode.HS}
+COLOR_MODES_HUE_EXTENDED = {ColorMode.COLOR_TEMP, ColorMode.HS}
+
+COLOR_MODES_HUE = {
+    "Extended color light": COLOR_MODES_HUE_EXTENDED,
+    "Color light": COLOR_MODES_HUE_COLOR,
+    "Dimmable light": COLOR_MODES_HUE_DIMMABLE,
+    "On/Off plug-in unit": COLOR_MODES_HUE_ON_OFF,
+    "Color temperature light": COLOR_MODES_HUE_COLOR_TEMP,
+}
+
+SUPPORT_HUE_ON_OFF = LightEntityFeature.FLASH | LightEntityFeature.TRANSITION
+SUPPORT_HUE_DIMMABLE = SUPPORT_HUE_ON_OFF
+SUPPORT_HUE_COLOR_TEMP = SUPPORT_HUE_DIMMABLE
+SUPPORT_HUE_COLOR = SUPPORT_HUE_DIMMABLE | LightEntityFeature.EFFECT
 SUPPORT_HUE_EXTENDED = SUPPORT_HUE_COLOR_TEMP | SUPPORT_HUE_COLOR
 
 SUPPORT_HUE = {
@@ -96,17 +110,32 @@ def create_light(item_class, coordinator, bridge, is_group, rooms, api, item_id)
     api_item = api[item_id]
 
     if is_group:
-        supported_features = 0
+        supported_color_modes = set()
+        supported_features = LightEntityFeature(0)
         for light_id in api_item.lights:
             if light_id not in bridge.api.lights:
                 continue
             light = bridge.api.lights[light_id]
             supported_features |= SUPPORT_HUE.get(light.type, SUPPORT_HUE_EXTENDED)
+            supported_color_modes.update(
+                COLOR_MODES_HUE.get(light.type, COLOR_MODES_HUE_EXTENDED)
+            )
         supported_features = supported_features or SUPPORT_HUE_EXTENDED
+        supported_color_modes = supported_color_modes or COLOR_MODES_HUE_EXTENDED
+        supported_color_modes = filter_supported_color_modes(supported_color_modes)
     else:
+        supported_color_modes = COLOR_MODES_HUE.get(
+            api_item.type, COLOR_MODES_HUE_EXTENDED
+        )
         supported_features = SUPPORT_HUE.get(api_item.type, SUPPORT_HUE_EXTENDED)
     return item_class(
-        coordinator, bridge, is_group, api_item, supported_features, rooms
+        coordinator,
+        bridge,
+        is_group,
+        api_item,
+        supported_color_modes,
+        supported_features,
+        rooms,
     )
 
 
@@ -198,7 +227,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         # Once we do a rooms update, we cancel the listener
         # until the next time lights are added
         bridge.reset_jobs.remove(cancel_update_rooms_listener)
-        cancel_update_rooms_listener()  # pylint: disable=not-callable
+        cancel_update_rooms_listener()
         cancel_update_rooms_listener = None
 
     @callback
@@ -236,7 +265,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 async def async_safe_fetch(bridge, fetch_method):
     """Safely fetch data."""
     try:
-        with async_timeout.timeout(4):
+        async with asyncio.timeout(4):
             return await bridge.async_request_call(fetch_method)
     except aiohue.Unauthorized as err:
         await bridge.handle_unauthorized_error()
@@ -278,20 +307,37 @@ def hass_to_hue_brightness(value):
     return max(1, round((value / 255) * 254))
 
 
+# pylint: disable-next=hass-enforce-class-module
 class HueLight(CoordinatorEntity, LightEntity):
     """Representation of a Hue light."""
 
-    def __init__(self, coordinator, bridge, is_group, light, supported_features, rooms):
+    def __init__(
+        self,
+        coordinator,
+        bridge,
+        is_group,
+        light,
+        supported_color_modes,
+        supported_features,
+        rooms,
+    ):
         """Initialize the light."""
         super().__init__(coordinator)
+        self._attr_supported_color_modes = supported_color_modes
+        self._attr_supported_features = supported_features
         self.light = light
         self.bridge = bridge
         self.is_group = is_group
-        self._supported_features = supported_features
         self._rooms = rooms
         self.allow_unreachable = self.bridge.config_entry.options.get(
             CONF_ALLOW_UNREACHABLE, DEFAULT_ALLOW_UNREACHABLE
         )
+
+        self._fixed_color_mode = None
+        if len(supported_color_modes) == 1:
+            self._fixed_color_mode = next(iter(supported_color_modes))
+        else:
+            assert supported_color_modes == {ColorMode.COLOR_TEMP, ColorMode.HS}
 
         if is_group:
             self.is_osram = False
@@ -299,6 +345,7 @@ class HueLight(CoordinatorEntity, LightEntity):
             self.is_innr = False
             self.is_ewelink = False
             self.is_livarno = False
+            self.is_s31litezb = False
             self.gamut_typ = GAMUT_TYPE_UNAVAILABLE
             self.gamut = None
         else:
@@ -307,6 +354,7 @@ class HueLight(CoordinatorEntity, LightEntity):
             self.is_innr = light.manufacturername == "innr"
             self.is_ewelink = light.manufacturername == "eWeLink"
             self.is_livarno = light.manufacturername.startswith("_TZ3000_")
+            self.is_s31litezb = light.modelid == "S31 Lite zb"
             self.gamut_typ = self.light.colorgamuttype
             self.gamut = self.light.colorgamut
             LOGGER.debug("Color gamut of %s: %s", self.name, str(self.gamut))
@@ -316,7 +364,7 @@ class HueLight(CoordinatorEntity, LightEntity):
                     "bulb in the Philips Hue App."
                 )
                 LOGGER.warning(err, self.name)
-            if self.gamut and not color.check_valid_gamut(self.gamut):
+            if self.gamut and not color_util.check_valid_gamut(self.gamut):
                 err = "Color gamut of %s: %s, not valid, setting gamut to None."
                 LOGGER.debug(err, self.name, str(self.gamut))
                 self.gamut_typ = GAMUT_TYPE_UNAVAILABLE
@@ -355,6 +403,19 @@ class HueLight(CoordinatorEntity, LightEntity):
         return hue_brightness_to_hass(bri)
 
     @property
+    def color_mode(self) -> str:
+        """Return the color mode of the light."""
+        if self._fixed_color_mode:
+            return self._fixed_color_mode
+
+        # The light supports both hs/xy and white with adjustabe color_temperature
+        mode = self._color_mode
+        if mode in ("xy", "hs"):
+            return ColorMode.HS
+
+        return ColorMode.COLOR_TEMP
+
+    @property
     def _color_mode(self):
         """Return the hue color mode."""
         if self.is_group:
@@ -368,49 +429,50 @@ class HueLight(CoordinatorEntity, LightEntity):
         source = self.light.action if self.is_group else self.light.state
 
         if mode in ("xy", "hs") and "xy" in source:
-            return color.color_xy_to_hs(*source["xy"], self.gamut)
+            return color_util.color_xy_to_hs(*source["xy"], self.gamut)
 
         return None
 
     @property
-    def color_temp(self):
-        """Return the CT color value."""
+    def color_temp_kelvin(self) -> int | None:
+        """Return the color temperature value in Kelvin."""
         # Don't return color temperature unless in color temperature mode
         if self._color_mode != "ct":
             return None
 
-        if self.is_group:
-            return self.light.action.get("ct")
-        return self.light.state.get("ct")
+        ct = (
+            self.light.action.get("ct") if self.is_group else self.light.state.get("ct")
+        )
+        return color_util.color_temperature_mired_to_kelvin(ct) if ct else None
 
     @property
-    def min_mireds(self):
-        """Return the coldest color_temp that this light supports."""
+    def max_color_temp_kelvin(self) -> int:
+        """Return the coldest color_temp_kelvin that this light supports."""
         if self.is_group:
-            return super().min_mireds
+            return DEFAULT_MAX_KELVIN
 
         min_mireds = self.light.controlcapabilities.get("ct", {}).get("min")
 
         # We filter out '0' too, which can be incorrectly reported by 3rd party buls
         if not min_mireds:
-            return super().min_mireds
+            return DEFAULT_MAX_KELVIN
 
-        return min_mireds
+        return color_util.color_temperature_mired_to_kelvin(min_mireds)
 
     @property
-    def max_mireds(self):
-        """Return the warmest color_temp that this light supports."""
+    def min_color_temp_kelvin(self) -> int:
+        """Return the warmest color_temp_kelvin that this light supports."""
         if self.is_group:
-            return super().max_mireds
+            return DEFAULT_MIN_KELVIN
         if self.is_livarno:
-            return 500
+            return 2000  # 500 mireds
 
         max_mireds = self.light.controlcapabilities.get("ct", {}).get("max")
 
         if not max_mireds:
-            return super().max_mireds
+            return DEFAULT_MIN_KELVIN
 
-        return max_mireds
+        return color_util.color_temperature_mired_to_kelvin(max_mireds)
 
     @property
     def is_on(self):
@@ -425,11 +487,6 @@ class HueLight(CoordinatorEntity, LightEntity):
         return self.coordinator.last_update_success and (
             self.is_group or self.allow_unreachable or self.light.state["reachable"]
         )
-
-    @property
-    def supported_features(self):
-        """Flag supported features."""
-        return self._supported_features
 
     @property
     def effect(self):
@@ -487,11 +544,14 @@ class HueLight(CoordinatorEntity, LightEntity):
                 # Philips hue bulb models respond differently to hue/sat
                 # requests, so we convert to XY first to ensure a consistent
                 # color.
-                xy_color = color.color_hs_to_xy(*kwargs[ATTR_HS_COLOR], self.gamut)
+                xy_color = color_util.color_hs_to_xy(*kwargs[ATTR_HS_COLOR], self.gamut)
                 command["xy"] = xy_color
-        elif ATTR_COLOR_TEMP in kwargs:
-            temp = kwargs[ATTR_COLOR_TEMP]
-            command["ct"] = max(self.min_mireds, min(temp, self.max_mireds))
+        elif ATTR_COLOR_TEMP_KELVIN in kwargs:
+            temp_k = max(
+                self.min_color_temp_kelvin,
+                min(self.max_color_temp_kelvin, kwargs[ATTR_COLOR_TEMP_KELVIN]),
+            )
+            command["ct"] = color_util.color_temperature_kelvin_to_mired(temp_k)
 
         if ATTR_BRIGHTNESS in kwargs:
             command["bri"] = hass_to_hue_brightness(kwargs[ATTR_BRIGHTNESS])
@@ -504,7 +564,12 @@ class HueLight(CoordinatorEntity, LightEntity):
         elif flash == FLASH_SHORT:
             command["alert"] = "select"
             del command["on"]
-        elif not self.is_innr and not self.is_ewelink and not self.is_livarno:
+        elif (
+            not self.is_innr
+            and not self.is_ewelink
+            and not self.is_livarno
+            and not self.is_s31litezb
+        ):
             command["alert"] = "none"
 
         if ATTR_EFFECT in kwargs:

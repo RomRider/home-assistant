@@ -1,4 +1,5 @@
 """Support for Sure PetCare Flaps/Pets binary sensors."""
+
 from __future__ import annotations
 
 from typing import cast
@@ -8,17 +9,16 @@ from surepy.entities.pet import Pet as SurepyPet
 from surepy.enums import EntityType, Location
 
 from homeassistant.components.binary_sensor import (
-    DEVICE_CLASS_CONNECTIVITY,
-    DEVICE_CLASS_PRESENCE,
+    BinarySensorDeviceClass,
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ENTITY_CATEGORY_DIAGNOSTIC
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SurePetcareDataCoordinator
 from .const import DOMAIN
+from .coordinator import SurePetcareDataCoordinator
 from .entity import SurePetcareEntity
 
 
@@ -32,7 +32,6 @@ async def async_setup_entry(
     coordinator: SurePetcareDataCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     for surepy_entity in coordinator.data.values():
-
         # connectivity
         if surepy_entity.type in [
             EntityType.CAT_FLAP,
@@ -67,8 +66,8 @@ class SurePetcareBinarySensor(SurePetcareEntity, BinarySensorEntity):
 class Hub(SurePetcareBinarySensor):
     """Sure Petcare Hub."""
 
-    _attr_device_class = DEVICE_CLASS_CONNECTIVITY
-    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def available(self) -> bool:
@@ -94,7 +93,7 @@ class Hub(SurePetcareBinarySensor):
 class Pet(SurePetcareBinarySensor):
     """Sure Petcare Pet."""
 
-    _attr_device_class = DEVICE_CLASS_PRESENCE
+    _attr_device_class = BinarySensorDeviceClass.PRESENCE
 
     @callback
     def _update_attr(self, surepy_entity: SurepyEntity) -> None:
@@ -117,8 +116,8 @@ class Pet(SurePetcareBinarySensor):
 class DeviceConnectivity(SurePetcareBinarySensor):
     """Sure Petcare Device."""
 
-    _attr_device_class = DEVICE_CLASS_CONNECTIVITY
-    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,
@@ -136,8 +135,8 @@ class DeviceConnectivity(SurePetcareBinarySensor):
         self._attr_is_on = bool(state)
         if state:
             self._attr_extra_state_attributes = {
-                "device_rssi": f'{state["signal"]["device_rssi"]:.2f}',
-                "hub_rssi": f'{state["signal"]["hub_rssi"]:.2f}',
+                "device_rssi": f"{state['signal']['device_rssi']:.2f}",
+                "hub_rssi": f"{state['signal']['hub_rssi']:.2f}",
             }
         else:
             self._attr_extra_state_attributes = {}

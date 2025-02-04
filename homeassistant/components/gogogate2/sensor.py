@@ -1,28 +1,24 @@
 """Support for Gogogate2 garage Doors."""
+
 from __future__ import annotations
 
 from itertools import chain
 
 from ismartgate.common import AbstractDoor, get_configured_doors
 
-from homeassistant.components.sensor import STATE_CLASS_MEASUREMENT, SensorEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    DEVICE_CLASS_BATTERY,
-    DEVICE_CLASS_TEMPERATURE,
-    ENTITY_CATEGORY_DIAGNOSTIC,
-    PERCENTAGE,
-    TEMP_CELSIUS,
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
 )
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .common import (
-    DeviceDataUpdateCoordinator,
-    GoGoGate2Entity,
-    get_data_update_coordinator,
-    sensor_unique_id,
-)
+from .common import get_data_update_coordinator, sensor_unique_id
+from .coordinator import DeviceDataUpdateCoordinator
+from .entity import GoGoGate2Entity
 
 SENSOR_ID_WIRED = "WIRE"
 
@@ -66,7 +62,10 @@ class DoorSensorEntity(GoGoGate2Entity, SensorEntity):
 class DoorSensorBattery(DoorSensorEntity):
     """Battery sensor entity for gogogate2 door sensor."""
 
-    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
 
     def __init__(
         self,
@@ -77,9 +76,6 @@ class DoorSensorBattery(DoorSensorEntity):
         """Initialize the object."""
         unique_id = sensor_unique_id(config_entry, door, "battery")
         super().__init__(config_entry, data_update_coordinator, door, unique_id)
-        self._attr_device_class = DEVICE_CLASS_BATTERY
-        self._attr_state_class = STATE_CLASS_MEASUREMENT
-        self._attr_native_unit_of_measurement = PERCENTAGE
 
     @property
     def name(self):
@@ -95,6 +91,10 @@ class DoorSensorBattery(DoorSensorEntity):
 class DoorSensorTemperature(DoorSensorEntity):
     """Temperature sensor entity for gogogate2 door sensor."""
 
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
     def __init__(
         self,
         config_entry: ConfigEntry,
@@ -104,9 +104,6 @@ class DoorSensorTemperature(DoorSensorEntity):
         """Initialize the object."""
         unique_id = sensor_unique_id(config_entry, door, "temperature")
         super().__init__(config_entry, data_update_coordinator, door, unique_id)
-        self._attr_device_class = DEVICE_CLASS_TEMPERATURE
-        self._attr_state_class = STATE_CLASS_MEASUREMENT
-        self._attr_native_unit_of_measurement = TEMP_CELSIUS
 
     @property
     def name(self):

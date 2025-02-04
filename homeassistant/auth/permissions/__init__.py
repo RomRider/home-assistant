@@ -1,19 +1,29 @@
 """Permissions for Home Assistant."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
 import voluptuous as vol
 
 from .const import CAT_ENTITIES
 from .entities import ENTITY_POLICY_SCHEMA, compile_entities
-from .merge import merge_policies  # noqa: F401
+from .merge import merge_policies
 from .models import PermissionLookup
 from .types import PolicyType
 from .util import test_all
 
 POLICY_SCHEMA = vol.Schema({vol.Optional(CAT_ENTITIES): ENTITY_POLICY_SCHEMA})
+
+__all__ = [
+    "POLICY_SCHEMA",
+    "AbstractPermissions",
+    "OwnerPermissions",
+    "PermissionLookup",
+    "PolicyPermissions",
+    "PolicyType",
+    "merge_policies",
+]
 
 
 class AbstractPermissions:
@@ -53,7 +63,7 @@ class PolicyPermissions(AbstractPermissions):
         """Return a function that can test entity access."""
         return compile_entities(self._policy.get(CAT_ENTITIES), self._perm_lookup)
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Equals check."""
         return isinstance(other, PolicyPermissions) and other._policy == self._policy
 

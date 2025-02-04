@@ -1,4 +1,5 @@
 """Support for Konnected devices."""
+
 import asyncio
 import logging
 
@@ -25,6 +26,7 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.helpers import aiohttp_client, device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.network import get_url
 
 from .const import (
@@ -121,7 +123,7 @@ class AlarmPanel:
             self.api_version = KONN_API_VERSIONS.get(
                 self.status.get("model", KONN_MODEL), KONN_API_VERSIONS[KONN_MODEL]
             )
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Connected to new %s device", self.status.get("model", "Konnected")
             )
             _LOGGER.debug(self.status)
@@ -136,16 +138,18 @@ class AlarmPanel:
 
             # retry in a bit, never more than ~3 min
             self.connect_attempts += 1
-            self.cancel_connect_retry = self.hass.helpers.event.async_call_later(
-                2 ** min(self.connect_attempts, 5) * 5, self.async_connect
+            self.cancel_connect_retry = async_call_later(
+                self.hass, 2 ** min(self.connect_attempts, 5) * 5, self.async_connect
             )
             return
 
         self.connect_attempts = 0
         self.connected = True
-        _LOGGER.info(
-            "Set up Konnected device %s. Open http://%s:%s in a "
-            "web browser to view device status",
+        _LOGGER.debug(
+            (
+                "Set up Konnected device %s. Open http://%s:%s in a "
+                "web browser to view device status"
+            ),
             self.device_id,
             self.host,
             self.port,
@@ -376,7 +380,7 @@ class AlarmPanel:
             self.async_desired_settings_payload()
             != self.async_current_settings_payload()
         ):
-            _LOGGER.info("Pushing settings to device %s", self.device_id)
+            _LOGGER.debug("Pushing settings to device %s", self.device_id)
             await self.client.put_settings(**self.async_desired_settings_payload())
 
 

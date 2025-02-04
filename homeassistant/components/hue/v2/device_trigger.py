@@ -1,9 +1,9 @@
 """Provides device automations for Philips Hue events."""
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from aiohue.v2.models.button import ButtonEvent
 from aiohue.v2.models.resource import ResourceTypes
 import voluptuous as vol
 
@@ -20,43 +20,47 @@ from homeassistant.core import CALLBACK_TYPE, callback
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.typing import ConfigType
 
-from ..const import ATTR_HUE_EVENT, CONF_SUBTYPE, DOMAIN
+from ..const import (
+    ATTR_HUE_EVENT,
+    CONF_SUBTYPE,
+    DEFAULT_BUTTON_EVENT_TYPES,
+    DEFAULT_ROTARY_EVENT_SUBTYPES,
+    DEFAULT_ROTARY_EVENT_TYPES,
+    DEVICE_SPECIFIC_EVENT_TYPES,
+    DOMAIN,
+)
 
 if TYPE_CHECKING:
     from aiohue.v2 import HueBridgeV2
 
-    from homeassistant.components.automation import (
-        AutomationActionType,
-        AutomationTriggerInfo,
-    )
+    from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 
     from ..bridge import HueBridge
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     {
         vol.Required(CONF_TYPE): str,
-        vol.Required(CONF_SUBTYPE): int,
+        vol.Required(CONF_SUBTYPE): vol.Union(int, str),
         vol.Optional(CONF_UNIQUE_ID): str,
     }
 )
 
 
 async def async_validate_trigger_config(
-    bridge: "HueBridge",
+    bridge: HueBridge,
     device_entry: DeviceEntry,
     config: ConfigType,
-):
+) -> ConfigType:
     """Validate config."""
-    config = TRIGGER_SCHEMA(config)
-    return config
+    return TRIGGER_SCHEMA(config)
 
 
 async def async_attach_trigger(
-    bridge: "HueBridge",
+    bridge: HueBridge,
     device_entry: DeviceEntry,
     config: ConfigType,
-    action: "AutomationActionType",
-    automation_info: "AutomationTriggerInfo",
+    action: TriggerActionType,
+    trigger_info: TriggerInfo,
 ) -> CALLBACK_TYPE:
     """Listen for state changes based on configuration."""
     hass = bridge.hass
@@ -72,31 +76,52 @@ async def async_attach_trigger(
         }
     )
     return await event_trigger.async_attach_trigger(
-        hass, event_config, action, automation_info, platform_type="device"
+        hass, event_config, action, trigger_info, platform_type="device"
     )
 
 
-async def async_get_triggers(bridge: "HueBridge", device_entry: DeviceEntry):
+@callback
+def async_get_triggers(
+    bridge: HueBridge, device_entry: DeviceEntry
+) -> list[dict[str, Any]]:
     """Return device triggers for device on `v2` bridge."""
     api: HueBridgeV2 = bridge.api
 
     # Get Hue device id from device identifier
     hue_dev_id = get_hue_device_id(device_entry)
     # extract triggers from all button resources of this Hue device
-    triggers = []
+    triggers: list[dict[str, Any]] = []
+    model_id = api.devices[hue_dev_id].product_data.product_name
+
     for resource in api.devices.get_sensors(hue_dev_id):
-        if resource.type != ResourceTypes.BUTTON:
-            continue
-        for event_type in (x.value for x in ButtonEvent if x != ButtonEvent.UNKNOWN):
-            triggers.append(
+        # button triggers
+        if resource.type == ResourceTypes.BUTTON:
+            triggers.extend(
                 {
                     CONF_DEVICE_ID: device_entry.id,
                     CONF_DOMAIN: DOMAIN,
                     CONF_PLATFORM: "device",
-                    CONF_TYPE: event_type,
+                    CONF_TYPE: event_type.value,
                     CONF_SUBTYPE: resource.metadata.control_id,
-                    CONF_UNIQUE_ID: device_entry.id,
+                    CONF_UNIQUE_ID: resource.id,
                 }
+                for event_type in DEVICE_SPECIFIC_EVENT_TYPES.get(
+                    model_id, DEFAULT_BUTTON_EVENT_TYPES
+                )
+            )
+        # relative_rotary triggers
+        elif resource.type == ResourceTypes.RELATIVE_ROTARY:
+            triggers.extend(
+                {
+                    CONF_DEVICE_ID: device_entry.id,
+                    CONF_DOMAIN: DOMAIN,
+                    CONF_PLATFORM: "device",
+                    CONF_TYPE: event_type.value,
+                    CONF_SUBTYPE: sub_type.value,
+                    CONF_UNIQUE_ID: resource.id,
+                }
+                for event_type in DEFAULT_ROTARY_EVENT_TYPES
+                for sub_type in DEFAULT_ROTARY_EVENT_SUBTYPES
             )
     return triggers
 

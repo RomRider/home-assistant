@@ -1,4 +1,5 @@
 """Reproduce an Automation state."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +16,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import Context, HomeAssistant, State
 
-from . import DOMAIN
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 

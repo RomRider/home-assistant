@@ -1,16 +1,18 @@
 {
   "domain": "knx",
   "name": "KNX",
+  "after_dependencies": ["panel_custom"],
+  "codeowners": ["@Julius2342", "@farmio", "@marvin-w"],
   "config_flow": true,
+  "dependencies": ["file_upload", "http", "websocket_api"],
   "documentation": "https://www.home-assistant.io/integrations/knx",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "loggers": ["xknx", "xknxproject"],
   "requirements": [
-    "xknx==0.18.13"
+    "xknx==3.5.0",
+    "xknxproject==3.8.1",
+    "knx-frontend==2025.1.30.194235"
   ],
-  "codeowners": [
-    "@Julius2342",
-    "@farmio",
-    "@marvin-w"
-  ],
-  "quality_scale": "silver",
-  "iot_class": "local_push"
+  "single_config_entry": true
 }

@@ -1,11 +1,20 @@
 """Support for interacting with Digital Ocean droplets."""
+
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
-from homeassistant.const import ATTR_ATTRIBUTION
-import homeassistant.helpers.config_validation as cv
+from homeassistant.components.switch import (
+    PLATFORM_SCHEMA as SWITCH_PLATFORM_SCHEMA,
+    SwitchEntity,
+)
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import (
     ATTR_CREATED_AT,
@@ -26,15 +35,20 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_NAME = "Droplet"
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = SWITCH_PLATFORM_SCHEMA.extend(
     {vol.Required(CONF_DROPLETS): vol.All(cv.ensure_list, [cv.string])}
 )
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+def setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,
+) -> None:
     """Set up the Digital Ocean droplet switch."""
     if not (digital := hass.data.get(DATA_DIGITAL_OCEAN)):
-        return False
+        return
 
     droplets = config[CONF_DROPLETS]
 
@@ -42,7 +56,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     for droplet in droplets:
         if (droplet_id := digital.get_droplet_id(droplet)) is None:
             _LOGGER.error("Droplet %s is not available", droplet)
-            return False
+            return
         dev.append(DigitalOceanSwitch(digital, droplet_id))
 
     add_entities(dev, True)
@@ -51,7 +65,9 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 class DigitalOceanSwitch(SwitchEntity):
     """Representation of a Digital Ocean droplet switch."""
 
-    def __init__(self, do, droplet_id):  # pylint: disable=invalid-name
+    _attr_attribution = ATTRIBUTION
+
+    def __init__(self, do, droplet_id):
         """Initialize a new Digital Ocean sensor."""
         self._digital_ocean = do
         self._droplet_id = droplet_id
@@ -72,7 +88,6 @@ class DigitalOceanSwitch(SwitchEntity):
     def extra_state_attributes(self):
         """Return the state attributes of the Digital Ocean droplet."""
         return {
-            ATTR_ATTRIBUTION: ATTRIBUTION,
             ATTR_CREATED_AT: self.data.created_at,
             ATTR_DROPLET_ID: self.data.id,
             ATTR_DROPLET_NAME: self.data.name,
@@ -84,17 +99,17 @@ class DigitalOceanSwitch(SwitchEntity):
             ATTR_VCPUS: self.data.vcpus,
         }
 
-    def turn_on(self, **kwargs):
+    def turn_on(self, **kwargs: Any) -> None:
         """Boot-up the droplet."""
         if self.data.status != "active":
             self.data.power_on()
 
-    def turn_off(self, **kwargs):
+    def turn_off(self, **kwargs: Any) -> None:
         """Shutdown the droplet."""
         if self.data.status == "active":
             self.data.power_off()
 
-    def update(self):
+    def update(self) -> None:
         """Get the latest data from the device and update the data."""
         self._digital_ocean.update()
 

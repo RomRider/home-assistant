@@ -1,72 +1,94 @@
 """Sensor platform for Garages Amsterdam."""
+
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from dataclasses import dataclass
 
-from homeassistant.components.sensor import SensorEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ATTRIBUTION
+from odp_amsterdam import Garage
+
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
+from homeassistant.helpers.typing import StateType
+
+from . import GaragesAmsterdamConfigEntry
+from .coordinator import GaragesAmsterdamDataUpdateCoordinator
+from .entity import GaragesAmsterdamEntity
+
+
+@dataclass(frozen=True, kw_only=True)
+class GaragesAmsterdamSensorEntityDescription(SensorEntityDescription):
+    """Class describing Garages Amsterdam sensor entity."""
+
+    value_fn: Callable[[Garage], StateType]
+
+
+SENSORS: tuple[GaragesAmsterdamSensorEntityDescription, ...] = (
+    GaragesAmsterdamSensorEntityDescription(
+        key="free_space_short",
+        translation_key="free_space_short",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda garage: garage.free_space_short,
+    ),
+    GaragesAmsterdamSensorEntityDescription(
+        key="free_space_long",
+        translation_key="free_space_long",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda garage: garage.free_space_long,
+    ),
+    GaragesAmsterdamSensorEntityDescription(
+        key="short_capacity",
+        translation_key="short_capacity",
+        value_fn=lambda garage: garage.short_capacity,
+    ),
+    GaragesAmsterdamSensorEntityDescription(
+        key="long_capacity",
+        translation_key="long_capacity",
+        value_fn=lambda garage: garage.long_capacity,
+    ),
 )
-
-from . import get_coordinator
-from .const import ATTRIBUTION
-
-SENSORS = {
-    "free_space_short": "mdi:car",
-    "free_space_long": "mdi:car",
-    "short_capacity": "mdi:car",
-    "long_capacity": "mdi:car",
-}
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    entry: GaragesAmsterdamConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Defer sensor setup to the shared sensor module."""
-    coordinator = await get_coordinator(hass)
+    coordinator = entry.runtime_data
 
-    entities: list[GaragesamsterdamSensor] = []
-
-    for info_type in SENSORS:
-        if getattr(coordinator.data[config_entry.data["garage_name"]], info_type) != "":
-            entities.append(
-                GaragesamsterdamSensor(
-                    coordinator, config_entry.data["garage_name"], info_type
-                )
-            )
-
-    async_add_entities(entities)
+    async_add_entities(
+        GaragesAmsterdamSensor(
+            coordinator=coordinator,
+            garage_name=entry.data["garage_name"],
+            description=description,
+        )
+        for description in SENSORS
+        if description.value_fn(coordinator.data[entry.data["garage_name"]]) is not None
+    )
 
 
-class GaragesamsterdamSensor(CoordinatorEntity, SensorEntity):
+class GaragesAmsterdamSensor(GaragesAmsterdamEntity, SensorEntity):
     """Sensor representing garages amsterdam data."""
 
+    entity_description: GaragesAmsterdamSensorEntityDescription
+
     def __init__(
-        self, coordinator: DataUpdateCoordinator, garage_name: str, info_type: str
+        self,
+        *,
+        coordinator: GaragesAmsterdamDataUpdateCoordinator,
+        garage_name: str,
+        description: GaragesAmsterdamSensorEntityDescription,
     ) -> None:
         """Initialize garages amsterdam sensor."""
-        super().__init__(coordinator)
-        self._unique_id = f"{garage_name}-{info_type}"
-        self._garage_name = garage_name
-        self._info_type = info_type
-        self._name = f"{garage_name} - {info_type}".replace("_", " ")
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return self._name
-
-    @property
-    def unique_id(self) -> str:
-        """Return the unique id of the device."""
-        return self._unique_id
+        super().__init__(coordinator, garage_name)
+        self.entity_description = description
+        self._attr_unique_id = f"{garage_name}-{description.key}"
 
     @property
     def available(self) -> bool:
@@ -76,21 +98,8 @@ class GaragesamsterdamSensor(CoordinatorEntity, SensorEntity):
         )
 
     @property
-    def native_value(self) -> str:
+    def native_value(self) -> StateType:
         """Return the state of the sensor."""
-        return getattr(self.coordinator.data[self._garage_name], self._info_type)
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return SENSORS[self._info_type]
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return unit of measurement."""
-        return "cars"
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return device attributes."""
-        return {ATTR_ATTRIBUTION: ATTRIBUTION}
+        return self.entity_description.value_fn(
+            self.coordinator.data[self._garage_name]
+        )

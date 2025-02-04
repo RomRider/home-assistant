@@ -1,19 +1,24 @@
-"""Offer Z-Wave JS value updated listening automation rules."""
+"""Offer Z-Wave JS value updated listening automation trigger."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 import functools
 
 import voluptuous as vol
 from zwave_js_server.const import CommandClass
-from zwave_js_server.event import Event
-from zwave_js_server.model.node import Node
-from zwave_js_server.model.value import Value, get_value_id
+from zwave_js_server.model.driver import Driver
+from zwave_js_server.model.value import Value, get_value_id_str
 
-from homeassistant.components.automation import (
-    AutomationActionType,
-    AutomationTriggerInfo,
-)
-from homeassistant.components.zwave_js.const import (
+from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID, CONF_PLATFORM, MATCH_ALL
+from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
+from homeassistant.helpers.typing import ConfigType
+
+from ..config_validation import VALUE_SCHEMA
+from ..const import (
     ATTR_COMMAND_CLASS,
     ATTR_COMMAND_CLASS_NAME,
     ATTR_CURRENT_VALUE,
@@ -27,30 +32,16 @@ from homeassistant.components.zwave_js.const import (
     ATTR_PROPERTY_KEY_NAME,
     ATTR_PROPERTY_NAME,
     DOMAIN,
+    EVENT_VALUE_UPDATED,
 )
-from homeassistant.components.zwave_js.helpers import (
-    async_get_node_from_device_id,
-    async_get_node_from_entity_id,
-    get_device_id,
-)
-from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID, CONF_PLATFORM, MATCH_ALL
-from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv, device_registry as dr
-from homeassistant.helpers.typing import ConfigType
+from ..helpers import async_get_nodes_from_targets, get_device_id
+from .trigger_helpers import async_bypass_dynamic_config_validation
 
 # Platform type should be <DOMAIN>.<SUBMODULE_NAME>
 PLATFORM_TYPE = f"{DOMAIN}.{__name__.rsplit('.', maxsplit=1)[-1]}"
 
 ATTR_FROM = "from"
 ATTR_TO = "to"
-
-VALUE_SCHEMA = vol.Any(
-    bool,
-    vol.Coerce(int),
-    vol.Coerce(float),
-    cv.boolean,
-    cv.string,
-)
 
 TRIGGER_SCHEMA = vol.All(
     cv.TRIGGER_BASE_SCHEMA.extend(
@@ -76,29 +67,35 @@ TRIGGER_SCHEMA = vol.All(
 )
 
 
+async def async_validate_trigger_config(
+    hass: HomeAssistant, config: ConfigType
+) -> ConfigType:
+    """Validate config."""
+    config = TRIGGER_SCHEMA(config)
+
+    if async_bypass_dynamic_config_validation(hass, config):
+        return config
+
+    if not async_get_nodes_from_targets(hass, config):
+        raise vol.Invalid(
+            f"No nodes found for given {ATTR_DEVICE_ID}s or {ATTR_ENTITY_ID}s."
+        )
+    return config
+
+
 async def async_attach_trigger(
     hass: HomeAssistant,
     config: ConfigType,
-    action: AutomationActionType,
-    automation_info: AutomationTriggerInfo,
+    action: TriggerActionType,
+    trigger_info: TriggerInfo,
     *,
     platform_type: str = PLATFORM_TYPE,
 ) -> CALLBACK_TYPE:
     """Listen for state changes based on configuration."""
-    nodes: set[Node] = set()
-    if ATTR_DEVICE_ID in config:
-        nodes.update(
-            {
-                async_get_node_from_device_id(hass, device_id)
-                for device_id in config.get(ATTR_DEVICE_ID, [])
-            }
-        )
-    if ATTR_ENTITY_ID in config:
-        nodes.update(
-            {
-                async_get_node_from_entity_id(hass, entity_id)
-                for entity_id in config.get(ATTR_ENTITY_ID, [])
-            }
+    dev_reg = dr.async_get(hass)
+    if not async_get_nodes_from_targets(hass, config, dev_reg=dev_reg):
+        raise ValueError(
+            f"No nodes found for given {ATTR_DEVICE_ID}s or {ATTR_ENTITY_ID}s."
         )
 
     from_value = config[ATTR_FROM]
@@ -107,14 +104,14 @@ async def async_attach_trigger(
     property_ = config[ATTR_PROPERTY]
     endpoint = config.get(ATTR_ENDPOINT)
     property_key = config.get(ATTR_PROPERTY_KEY)
-    unsubs = []
+    unsubs: list[Callable] = []
     job = HassJob(action)
 
-    trigger_data = automation_info["trigger_data"]
+    trigger_data = trigger_info["trigger_data"]
 
     @callback
     def async_on_value_updated(
-        value: Value, device: dr.DeviceEntry, event: Event
+        value: Value, device: dr.DeviceEntry, event: dict
     ) -> None:
         """Handle value update."""
         event_value: Value = event["value"]
@@ -132,14 +129,9 @@ async def async_attach_trigger(
             (prev_value, prev_value_raw, from_value),
             (curr_value, curr_value_raw, to_value),
         ):
-            if (
-                match != MATCH_ALL
-                and value_to_eval != match
-                and not (
-                    isinstance(match, list)
-                    and (value_to_eval in match or raw_value_to_eval in match)
-                )
-                and raw_value_to_eval != match
+            if match not in (MATCH_ALL, value_to_eval, raw_value_to_eval) and not (
+                isinstance(match, list)
+                and (value_to_eval in match or raw_value_to_eval in match)
             ):
                 return
 
@@ -161,25 +153,10 @@ async def async_attach_trigger(
             ATTR_PREVIOUS_VALUE_RAW: prev_value_raw,
             ATTR_CURRENT_VALUE: curr_value,
             ATTR_CURRENT_VALUE_RAW: curr_value_raw,
-            "description": f"Z-Wave value {value_id} updated on {device_name}",
+            "description": f"Z-Wave value {value.value_id} updated on {device_name}",
         }
 
         hass.async_run_hass_job(job, {"trigger": payload})
-
-    dev_reg = dr.async_get(hass)
-    for node in nodes:
-        device_identifier = get_device_id(node.client, node)
-        device = dev_reg.async_get_device({device_identifier})
-        assert device
-        value_id = get_value_id(node, command_class, property_, endpoint, property_key)
-        value = node.values[value_id]
-        # We need to store the current value and device for the callback
-        unsubs.append(
-            node.on(
-                "value updated",
-                functools.partial(async_on_value_updated, value, device),
-            )
-        )
 
     @callback
     def async_remove() -> None:
@@ -187,5 +164,41 @@ async def async_attach_trigger(
         for unsub in unsubs:
             unsub()
         unsubs.clear()
+
+    def _create_zwave_listeners() -> None:
+        """Create Z-Wave JS listeners."""
+        async_remove()
+        # Nodes list can come from different drivers and we will need to listen to
+        # server connections for all of them.
+        drivers: set[Driver] = set()
+        for node in async_get_nodes_from_targets(hass, config, dev_reg=dev_reg):
+            driver = node.client.driver
+            assert driver is not None  # The node comes from the driver.
+            drivers.add(driver)
+            device_identifier = get_device_id(driver, node)
+            device = dev_reg.async_get_device(identifiers={device_identifier})
+            assert device
+            value_id = get_value_id_str(
+                node, command_class, property_, endpoint, property_key
+            )
+            value = node.values[value_id]
+            # We need to store the current value and device for the callback
+            unsubs.append(
+                node.on(
+                    EVENT_VALUE_UPDATED,
+                    functools.partial(async_on_value_updated, value, device),
+                )
+            )
+
+        unsubs.extend(
+            async_dispatcher_connect(
+                hass,
+                f"{DOMAIN}_{driver.controller.home_id}_connected_to_server",
+                _create_zwave_listeners,
+            )
+            for driver in drivers
+        )
+
+    _create_zwave_listeners()
 
     return async_remove
