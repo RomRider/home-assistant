@@ -3,7 +3,10 @@
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import (
+    Platform,
+    CONF_PATH,
+)
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
@@ -16,6 +19,7 @@ from .const import (
     SERVICE_PAUSE,
     SERVICE_RESUME,
     SERVICE_SET_SPEED,
+    DEFAULT_URL_BASE,
 )
 from .coordinator import NZBGetDataUpdateCoordinator
 
@@ -91,3 +95,17 @@ def _async_register_services(
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+async def async_migrate_entry(hass, config_entry: ConfigEntry) -> bool:
+    """Migrate old entry."""
+    _LOGGER.debug("Migrating configuration from version %s.%s", config_entry.version, config_entry.minor_version)
+
+    if config_entry.version == 1:
+        new_data = {**config_entry.data}
+        new_data[CONF_PATH] = DEFAULT_URL_BASE
+
+        hass.config_entries.async_update_entry(config_entry, data=new_data, minor_version=0, version=2)
+
+    _LOGGER.debug("Migration to configuration version %s.%s successful", config_entry.version, config_entry.minor_version)
+
+    return True

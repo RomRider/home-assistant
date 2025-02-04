@@ -16,9 +16,10 @@ from homeassistant.const import (
     CONF_SSL,
     CONF_USERNAME,
     CONF_VERIFY_SSL,
+    CONF_PATH,
 )
 
-from .const import DEFAULT_NAME, DEFAULT_PORT, DEFAULT_SSL, DEFAULT_VERIFY_SSL, DOMAIN
+from .const import DEFAULT_NAME, DEFAULT_PORT, DEFAULT_SSL, DEFAULT_VERIFY_SSL, DOMAIN, DEFAULT_URL_BASE
 from .coordinator import NZBGetAPI, NZBGetAPIException
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ def _validate_input(data: dict[str, Any]) -> None:
     """
     nzbget_api = NZBGetAPI(
         data[CONF_HOST],
+        data[CONF_PATH],
         data.get(CONF_USERNAME),
         data.get(CONF_PASSWORD),
         data[CONF_SSL],
@@ -44,7 +46,7 @@ def _validate_input(data: dict[str, Any]) -> None:
 class NZBGetConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for NZBGet."""
 
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -71,6 +73,7 @@ class NZBGetConfigFlow(ConfigFlow, domain=DOMAIN):
 
         data_schema = {
             vol.Required(CONF_HOST): str,
+            vol.Optional(CONF_PATH, default=DEFAULT_URL_BASE): str,
             vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
             vol.Optional(CONF_USERNAME): str,
             vol.Optional(CONF_PASSWORD): str,

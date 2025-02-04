@@ -7,6 +7,7 @@
   "python.testing.pytestEnabled": false,
   // https://code.visualstudio.com/docs/python/linting#_general-settings
   "pylint.importStrategy": "fromEnvironment",
+  "dev.containers.mountWaylandSocket": false,
   "json.schemas": [
         {
             "fileMatch": [

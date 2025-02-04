@@ -6,6 +6,7 @@
   "documentation": "https://www.home-assistant.io/integrations/nzbget",
   "iot_class": "local_polling",
   "loggers": ["pynzbgetapi"],
-  "requirements": ["pynzbgetapi==0.2.0"],
-  "single_config_entry": true
+  "requirements": ["git+https://github.com/RomRider/pynzbgetapi@patch-1"],
+  "single_config_entry": true,
+  "version": "0.3.0"
 }
